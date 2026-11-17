@@ -212,8 +212,15 @@ cv_glmnet_grupo = function(data, features, alpha, k = 10, seed = 42, y_col = var
     y_train = train_data[[y_col]]
     y_test  = test_data[[y_col]]
     
+    # dentro del fold, antes de cv.glmnet
+    grupos  = sample(unique(as.character(train_data$codigo)))
+    id_fold = setNames(rep_len(1:10, length(grupos)), grupos)
+    foldid  = id_fold[as.character(train_data$codigo)]
+    
+    cv_model = cv.glmnet(X_train, y_train, alpha = alpha, foldid = foldid)
+    
     # Ajuste con CV interna para lambda (solo sobre train)
-    cv_model   = cv.glmnet(X_train, y_train, alpha = alpha)
+    #cv_model   = cv.glmnet(X_train, y_train, alpha = alpha)
     opt_lambda = cv_model$lambda.min
     
     pred = predict(cv_model, s = opt_lambda, newx = X_test) %>% as.numeric()
@@ -688,8 +695,14 @@ modelo_final_grupo = function(data, features, alpha, seed = 42) {
   y_train = train_data$cwsi
   y_test  = test_data$cwsi
   
+  grupos  = sample(unique(as.character(train_data$codigo)))
+  id_fold = setNames(rep_len(1:10, length(grupos)), grupos)
+  foldid  = id_fold[as.character(train_data$codigo)]
+  
+  cv_model = cv.glmnet(X_train, y_train, alpha = alpha, foldid = foldid)
+  
   # Ajuste
-  cv_model = cv.glmnet(X_train, y_train, alpha = alpha)
+  #cv_model = cv.glmnet(X_train, y_train, alpha = alpha)
   
   pred = predict(cv_model, s = "lambda.min", newx = X_test) %>% as.numeric()
   
@@ -824,7 +837,6 @@ modelo_final_nnet_grupo = function(data, features, seed = 42, size = NULL, decay
 
 
 # --- XGBoost ---
-# nrounds tuneado con los mismos hiperparámetros de la CV.
 modelo_final_xgb_grupo = function(data, features, seed = 42, nrounds = 200, max_depth = 4, eta = 0.05, subsample = 0.8, colsample = 0.8) {
   set.seed(seed)
   
@@ -920,7 +932,7 @@ res_xgb_completo = cbind(rep("XGboost", nrow(res_xgb_completo)), res_xgb_complet
 names(res_xgb_completo)[1] = "Modelo"
 
 resumen_particion_final = rbind(res_rf_completo, res_ridge_completo, res_lasso_completo, res_svm_completo, res_nnet_completo, res_xgb_completo)
-#write.xlsx(resumen_particion_final, "resumen_datos_partición_final.xlsx")
+#write.xlsx(resumen_particion_final, "resumen_datos_partición_final_cwsi.xlsx")
 
 p1 = plot_obs_pred(res_rf_completo, "RF")
 p2 = plot_obs_pred(res_ridge_completo, "Ridge")
@@ -982,7 +994,7 @@ res %>%
 ids_extremos = res %>% filter(atipico) %>% pull(id) %>% unique()
 res %>% filter(!id %in% ids_extremos) %>% group_by(Modelo) %>%
   summarise(RMSE = sqrt(mean(residuo^2)), MAE = mean(abs(residuo)),
-            R2 = cor(observado, predicho)^2)
+            R2 = sum((observado - predicho)^2)/sum((observado - mean(observado))^2))
 
 
 tabla_tramo = res %>%
@@ -1079,6 +1091,27 @@ fig_resaltado
 #ggsave("particion_final_cwsi_resaltado.png", fig_resaltado, width = 14, height = 9, dpi = 300)
 
 
+# 4) Tabla comparativa: con y sin observaciones extremas ----
+tabla_atipicos = res %>%
+  group_by(Modelo) %>%
+  summarise(
+    n            = n(),
+    n_extremos   = sum(extremo_comun),
+    pct_extremos = round(100 * mean(extremo_comun), 1),
+    R2_todas     = 1 - sum(residuo^2) / sum((observado - mean(observado))^2),
+    RMSE_todas   = sqrt(mean(residuo^2)),
+    MAE_todas    = mean(abs(residuo)),
+    R2_sin       = 1 - sum(residuo[!extremo_comun]^2) /
+      sum((observado[!extremo_comun] - mean(observado[!extremo_comun]))^2),
+    RMSE_sin     = sqrt(mean(residuo[!extremo_comun]^2)),
+    MAE_sin      = mean(abs(residuo[!extremo_comun])),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4)))
+
+print(tabla_atipicos)
+
+
 tabla_metricas = tabla_atipicos %>%
   transmute(Modelo,
             `N extremos (%)` = sprintf("%d (%.1f%%)", n_extremos, pct_extremos),
@@ -1103,23 +1136,5 @@ fig_sin
 # ggsave("particion_final_cwsi_sin_extremos.png", fig_sin, width = 14, height = 9, dpi = 300)
 
 
-# 4) Tabla comparativa: con y sin observaciones extremas ----
-tabla_atipicos = res %>%
-  group_by(Modelo) %>%
-  summarise(
-    n            = n(),
-    n_extremos   = sum(extremo_comun),
-    pct_extremos = round(100 * mean(extremo_comun), 1),
-    R2_todas     = 1 - sum(residuo^2) / sum((observado - mean(observado))^2),
-    RMSE_todas   = sqrt(mean(residuo^2)),
-    MAE_todas    = mean(abs(residuo)),
-    R2_sin       = 1 - sum(residuo[!extremo_comun]^2) /
-      sum((observado[!extremo_comun] - mean(observado[!extremo_comun]))^2),
-    RMSE_sin     = sqrt(mean(residuo[!extremo_comun]^2)),
-    MAE_sin      = mean(abs(residuo[!extremo_comun])),
-    .groups = "drop"
-  ) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 4)))
 
-print(tabla_atipicos)
 

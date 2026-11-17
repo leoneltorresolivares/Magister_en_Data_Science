@@ -73,8 +73,14 @@ cv_glmnet_grupo = function(data, features, alpha, k = 10, seed = 42) {
     y_train = train_data$ndvi
     y_test  = test_data$ndvi
     
+    grupos  = sample(unique(as.character(train_data$codigo)))
+    id_fold = setNames(rep_len(1:10, length(grupos)), grupos)
+    foldid  = id_fold[as.character(train_data$codigo)]
+    
+    cv_model = cv.glmnet(X_train, y_train, alpha = alpha, foldid = foldid)
+    
     # Ajuste con CV interna para lambda (solo sobre train)
-    cv_model   = cv.glmnet(X_train, y_train, alpha = alpha)
+    #cv_model   = cv.glmnet(X_train, y_train, alpha = alpha)
     opt_lambda = cv_model$lambda.min
     
     pred = predict(cv_model, s = opt_lambda, newx = X_test) %>% as.numeric()
@@ -566,8 +572,14 @@ modelo_final_grupo = function(data, features, alpha, seed = 42) {
   y_train = train_data$ndvi
   y_test  = test_data$ndvi
   
+  grupos  = sample(unique(as.character(train_data$codigo)))
+  id_fold = setNames(rep_len(1:10, length(grupos)), grupos)
+  foldid  = id_fold[as.character(train_data$codigo)]
+  
+  cv_model = cv.glmnet(X_train, y_train, alpha = alpha, foldid = foldid)
+  
   # Ajuste
-  cv_model = cv.glmnet(X_train, y_train, alpha = alpha)
+  #cv_model = cv.glmnet(X_train, y_train, alpha = alpha)
   
   pred = predict(cv_model, s = "lambda.min", newx = X_test) %>% as.numeric()
   
@@ -702,7 +714,6 @@ modelo_final_nnet_grupo = function(data, features, seed = 42, size = NULL, decay
 
 
 # --- XGBoost ---
-# nrounds tuneado con los mismos hiperparámetros de la CV.
 modelo_final_xgb_grupo = function(data, features, seed = 42, nrounds = 200, max_depth = 4, eta = 0.05, subsample = 0.8, colsample = 0.8) {
   set.seed(seed)
   
@@ -827,7 +838,7 @@ resumen_final = rbind(
 print(resumen_final)
 
 # Ver valores atipicos
-resumen_particion_final = tibble(read_excel("resumen_datos_partición_final.xlsx"))
+#resumen_particion_final = tibble(read_excel("resumen_datos_partición_final.xlsx"))
 res = resumen_particion_final %>% mutate(residuo = observado - predicho)
 
 res %>%
@@ -864,8 +875,7 @@ res %>%
 ids_extremos = res %>% filter(atipico) %>% pull(id) %>% unique()
 res %>% filter(!id %in% ids_extremos) %>% group_by(Modelo) %>%
   summarise(RMSE = sqrt(mean(residuo^2)), MAE = mean(abs(residuo)),
-            R2 = cor(observado, predicho)^2)
-
+            R2 = sum((observado - predicho)^2)/sum((observado - mean(observado))^2))
 
 tabla_tramo = res %>%
   mutate(tramo = ifelse(observado > 0.7, "alto", "bajo_medio")) %>%
@@ -958,7 +968,7 @@ fig_resaltado = wrap_plots(paneles, ncol = 3) +
   plot_layout(guides = "collect") +
   plot_annotation(theme = theme(legend.position = "bottom"))
 fig_resaltado
-ggsave("particion_final_ndvi_resaltado.png", fig_resaltado, width = 14, height = 9, dpi = 300)
+#ggsave("particion_final_ndvi_resaltado.png", fig_resaltado, width = 14, height = 9, dpi = 300)
 
 # 3b) Solo observaciones no extremas (complemento)
 paneles_sin = lapply(orden, function(m) {
